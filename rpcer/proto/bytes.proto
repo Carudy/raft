@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+service Bytes {
+  rpc send(Msg) returns (Res) {}
+}
+
+message Msg{
+  bytes msg = 1;
+}
+
+message Res {
+  bytes res = 1;
+}
