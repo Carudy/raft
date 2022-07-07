@@ -23,7 +23,7 @@ class RaftNode:
     def callback(self, msg):
         # logger.info(f'{self.name} receive from {msg["name"]}')
         if msg['state'] == 'candidate':
-            if self.state == 'follower' and self.voted is None:
+            if self.state == 'follower' and self.voted is None and self.followed is None:
                 self.voted = msg['name']
                 # logger.debug(f'Node {self.name} vote for {msg["name"]}.')
                 return {'code': 'ok'}
@@ -31,6 +31,7 @@ class RaftNode:
         elif msg['state'] == 'leader':
             if self.state != 'leader' and self.followed is None:
                 self.followed = msg['name']
+                self.state = 'follower'
                 # logger.debug(f'Node {self.name} follow {msg["name"]}.')
                 return {'code': 'ok'}
 
@@ -39,7 +40,7 @@ class RaftNode:
     def compete(self, others):
         self.get_ready()
         bound = (len(others)+1) * 0.5
-        t = random.random() * 10
+        t = random.random() * 4
         # logger.debug(f'Node {self.name} sleep {t}s.')
         time.sleep(t)
         if self.voted is not None or self.followed is not None:
@@ -51,12 +52,12 @@ class RaftNode:
             if self.followed:
                 break
             node = others[i]
-            res = node.callback({
+            res = self.comm.send(node.comm, {
                 'cmd': 'ask',
                 'name': self.name,
                 'state': self.state,
             })
-            if res['code'] == 'ok':
+            if res['code'] == 'ok' and self.state == 'candidate':
                 self.votes += 1
             if self.votes >= bound and self.state == 'candidate':
                 logger.debug(f'Node {self.name} become a leader.')
@@ -76,18 +77,24 @@ def start_raft(nodes):
             td.join()
         res = [node for node in nodes if node.state == 'leader']
         if len(res) == 1:
-            logger.info(f'Node {res[0].name} win, failed {n_fail} times.')
+            logger.info(
+                f'Node {res[0].name} win with {res[0].votes} votes, failed {n_fail} times.')
+            logger.info(f'Totally {sum(node.votes for node in nodes)} votes.')
             return res[0]
         else:
             n_fail += 1
             logger.warning('Failed. Will retry.')
-            _nodes = sorted(nodes, key=lambda x:-x.votes)
+            _nodes = sorted(nodes, key=lambda x: -x.votes)
             for node in _nodes[:3]:
                 logger.info(f'{node.name} get {node.votes}, is {node.state}')
 
 
 if __name__ == '__main__':
-    n = 1000
-    nodes = [RaftNode(i) for i in range(n)]
-    logger.level = 'info'
-    start_raft(nodes)
+    xs = [10 * i for i in range(1, 11)]
+    ys = []
+    for n in xs:
+        nodes = [RaftNode(i) for i in range(n)]
+        start_raft(nodes)
+        nc = sum(node.comm.server.n_comm for node in nodes)
+        ys.append(nc / len(nodes))
+    print(ys)
